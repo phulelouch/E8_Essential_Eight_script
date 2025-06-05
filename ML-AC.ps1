@@ -431,7 +431,7 @@ if ($publisherOrHashBasedProtection) {
     if ($allPathsProtected) {
         $resultDetails += "Path-based protection detected`n"
         foreach ($category in $criticalPaths.Keys) {
-            $resultDetails += "$category: Protected`n"
+            $resultDetails += "$category Protected`n"
             $resultDetails += $criticalPaths[$category].Details
         }
         
@@ -826,7 +826,7 @@ ML1-AC-03: Application control restricts execution to an organisation-approved s
 
 TEST FILES
 ----------
-The following test files have been created in $testFilesDir:
+The following test files have been created in $testFilesDir
 - TestExecutable.exe: A benign executable file
 - TestLibrary.dll: A benign software library
 - TestScript.ps1: A PowerShell script
