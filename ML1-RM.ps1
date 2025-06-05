@@ -600,6 +600,16 @@ if (-not (Test-Path -Path $eicarTestDir)) {
     New-Item -Path $eicarTestDir -ItemType Directory | Out-Null
 }
 
+# Create EICAR test macro file for manual testing
+Write-Host "`n=========================================================" -ForegroundColor Green
+Write-Host "                  EICAR TEST MACRO                      " -ForegroundColor Green
+Write-Host "=========================================================" -ForegroundColor Green
+
+$eicarTestDir = Join-Path -Path $env:USERPROFILE -ChildPath "OfficeMacroSecurityChecks\TestFiles"
+if (-not (Test-Path -Path $eicarTestDir)) {
+    New-Item -Path $eicarTestDir -ItemType Directory -Force | Out-Null
+}
+
 $eicarMacroFile = Join-Path -Path $eicarTestDir -ChildPath "EicarTestMacro.txt"
 $eicarString = "X5O!P%@AP[4\PZX54(P^)7CC)7}`$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!`$H+H*"
 $eicarMacroContent = @"
@@ -628,6 +638,10 @@ Sub EicarTest()
 End Sub
 "@
 
+Write-Host $eicarMacroContent -ForegroundColor Yellow
+Write-Host "`nEICAR test macro can be used to verify antivirus scanning of Office macros" -ForegroundColor Cyan
+Write-Host "To use Copy this macro code into a macro-enabled Office document (.docm, .xlsm, etc.)" -ForegroundColor Cyan
+Write-Host "File also saved to $eicarMacroFile" -ForegroundColor Cyan
 try {
     Set-Content -Path $eicarMacroFile -Value $eicarMacroContent -Force
     Write-Host "`nCreated EICAR test macro file at $eicarMacroFile" -ForegroundColor Cyan
