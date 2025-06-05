@@ -113,8 +113,7 @@ $appControlSolutions = @{
         Implemented = $false
         Details = ""
         RegPaths = @(
-            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\SrpV2",
-            "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows\SrpV2"
         )
         Services = @(
             "AppIDSvc"
