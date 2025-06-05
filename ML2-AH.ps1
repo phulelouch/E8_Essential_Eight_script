@@ -274,24 +274,296 @@ if ($cmdLineAudit.ProcessCreationIncludeCmdLine_Enabled -eq 1) {
 }
 Write-Host ""
 
-# ML2-AH-13 Event log protection (same as ML2-RA-08)
-Write-Host "ML2-AH-13 - Event Log Protection" -ForegroundColor Yellow
-Write-Host "Checking event log permissions and settings..."
+# ML2-AH-13 Event Log Protection Verification Script
+# Run this script with appropriate permissions
 
-$logs = @("Application", "Security", "System", "Microsoft-Windows-PowerShell/Operational")
-foreach ($logName in $logs) {
-    try {
-        $log = Get-WinEvent -ListLog $logName -ErrorAction SilentlyContinue
-        if ($log) {
-            $maxSize = [math]::Round($log.MaximumSizeInBytes / 1MB, 2)
-            Write-Host "$logName log - Max size ${maxSize}MB, Enabled $($log.IsEnabled)" -ForegroundColor Gray
-        }
-    } catch {
-        Write-Host "Unable to query $logName log" -ForegroundColor Gray
-    }
-}
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "ML2-AH-13 - Event Log Protection Check" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Function to check permissions on event log files
+function Get-EventLogPermissions {
+    param([string]$LogName)
+    
+    try {
+        # Get the log file path
+        $log = Get-WinEvent -ListLog $LogName -ErrorAction Stop
+        $logPath = $log.LogFilePath
+        
+        if (Test-Path $logPath) {
+            $acl = Get-Acl -Path $logPath
+            return $acl
+        }
+    } catch {
+        return $null
+    }
+}
+
+# Function to check registry permissions for event log configuration
+function Get-EventLogRegistryPermissions {
+    param([string]$LogName)
+    
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\$LogName"
+    try {
+        if (Test-Path $regPath) {
+            $acl = Get-Acl -Path $regPath
+            return $acl
+        }
+    } catch {
+        return $null
+    }
+}
+
+Write-Host "Current User Context" -ForegroundColor Yellow
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+Write-Host "Running as $($currentUser.Name)"
+$principal = New-Object System.Security.Principal.WindowsPrincipal($currentUser)
+$isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+Write-Host "Administrator privileges $isAdmin"
+Write-Host ""
+
+# Check critical event logs
+$criticalLogs = @("Security", "System", "Application", "Microsoft-Windows-PowerShell/Operational")
+
+Write-Host "Checking Event Log File Permissions" -ForegroundColor Yellow
+Write-Host "=====================================" -ForegroundColor Gray
+
+foreach ($logName in $criticalLogs) {
+    Write-Host ""
+    Write-Host "Log $logName" -ForegroundColor Cyan
+    
+    # Get log configuration
+    try {
+        $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
+        Write-Host "  Log enabled $($log.IsEnabled)"
+        Write-Host "  Max size $([math]::Round($log.MaximumSizeInBytes / 1MB, 2)) MB"
+        Write-Host "  Retention policy $($log.LogMode)"
+        
+        # Check file permissions
+        $acl = Get-EventLogPermissions -LogName $logName
+        if ($acl) {
+            Write-Host "  File path $($log.LogFilePath)" -ForegroundColor Gray
+            
+            # Check for dangerous permissions
+            $dangerousPermissions = @()
+            foreach ($access in $acl.Access) {
+                $identity = $access.IdentityReference.Value
+                $rights = $access.FileSystemRights
+                
+                # Check if non-admin users have write/delete permissions
+                if ($identity -match "Users|Everyone|Authenticated Users") {
+                    if ($rights -match "Write|Delete|ChangePermissions|TakeOwnership") {
+                        $dangerousPermissions += "    WARNING - $identity has $rights" 
+                    }
+                }
+            }
+            
+            if ($dangerousPermissions.Count -gt 0) {
+                Write-Host "  File permissions VULNERABLE" -ForegroundColor Red
+                $dangerousPermissions | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            } else {
+                Write-Host "  File permissions SECURE (no write/delete for standard users)" -ForegroundColor Green
+            }
+        }
+    } catch {
+        Write-Host "  Unable to query log configuration" -ForegroundColor Gray
+    }
+}
+
+Write-Host ""
+Write-Host "Checking Event Log Registry Permissions" -ForegroundColor Yellow
+Write-Host "=======================================" -ForegroundColor Gray
+
+foreach ($logName in $criticalLogs) {
+    Write-Host ""
+    Write-Host "Registry for $logName" -ForegroundColor Cyan
+    
+    $acl = Get-EventLogRegistryPermissions -LogName $logName
+    if ($acl) {
+        $dangerousPermissions = @()
+        foreach ($access in $acl.Access) {
+            $identity = $access.IdentityReference.Value
+            $rights = $access.RegistryRights
+            
+            # Check if non-admin users have write permissions
+            if ($identity -match "Users|Everyone|Authenticated Users") {
+                if ($rights -match "WriteKey|ChangePermissions|TakeOwnership|Delete") {
+                    $dangerousPermissions += "    WARNING - $identity has $rights"
+                }
+            }
+        }
+        
+        if ($dangerousPermissions.Count -gt 0) {
+            Write-Host "  Registry permissions VULNERABLE" -ForegroundColor Red
+            $dangerousPermissions | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+        } else {
+            Write-Host "  Registry permissions SECURE" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  Unable to check registry permissions" -ForegroundColor Gray
+    }
+}
+
+Write-Host ""
+Write-Host "Checking Event Log Service Configuration" -ForegroundColor Yellow
+Write-Host "========================================" -ForegroundColor Gray
+
+# Check Windows Event Log service
+$eventLogService = Get-Service -Name EventLog -ErrorAction SilentlyContinue
+if ($eventLogService) {
+    Write-Host "Windows Event Log service status $($eventLogService.Status)"
+    if ($eventLogService.Status -eq "Running") {
+        Write-Host "  Service is running properly" -ForegroundColor Green
+    } else {
+        Write-Host "  Service is not running!" -ForegroundColor Red
+    }
+    
+    # Check service permissions
+    $serviceSddl = sc.exe sdshow EventLog
+    if ($serviceSddl -match "D:") {
+        Write-Host "  Service permissions configured" -ForegroundColor Green
+    }
+}
+
+Write-Host ""
+Write-Host "Checking Audit Policies for Event Log Protection" -ForegroundColor Yellow
+Write-Host "================================================" -ForegroundColor Gray
+
+# Check if event log clearing is audited
+$auditCategories = @(
+    @{Name="Audit Policy Change"; Expected="Success and Failure"},
+    @{Name="System Integrity"; Expected="Success and Failure"}
+)
+
+foreach ($category in $auditCategories) {
+    $result = auditpol /get /subcategory:"$($category.Name)" /r | ConvertFrom-Csv | Where-Object {$_."Subcategory" -eq $category.Name}
+    if ($result) {
+        if ($result."Inclusion Setting" -match "Success and Failure") {
+            Write-Host "$($category.Name) auditing is FULLY ENABLED" -ForegroundColor Green
+        } elseif ($result."Inclusion Setting" -match "Success|Failure") {
+            Write-Host "$($category.Name) auditing is PARTIALLY enabled ($($result.'Inclusion Setting'))" -ForegroundColor Yellow
+        } else {
+            Write-Host "$($category.Name) auditing is DISABLED" -ForegroundColor Red
+        }
+    }
+}
+
+Write-Host ""
+Write-Host "Checking Group Policy Settings for Event Log Protection" -ForegroundColor Yellow
+Write-Host "======================================================" -ForegroundColor Gray
+
+# Check for specific GPO settings
+$gpoSettings = @(
+    @{Path="HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Security"; Name="RestrictGuestAccess"; Expected=1},
+    @{Path="HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security"; Name="Retention"; Expected=0}
+)
+
+foreach ($setting in $gpoSettings) {
+    try {
+        $value = Get-ItemProperty -Path $setting.Path -Name $setting.Name -ErrorAction Stop
+        if ($value.($setting.Name) -eq $setting.Expected) {
+            Write-Host "$($setting.Name) is properly configured" -ForegroundColor Green
+        } else {
+            Write-Host "$($setting.Name) is not set to recommended value" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "$($setting.Name) policy not configured" -ForegroundColor Gray
+    }
+}
+
+Write-Host ""
+Write-Host "Testing Current User's Ability to Modify Logs" -ForegroundColor Yellow
+Write-Host "=============================================" -ForegroundColor Gray
+
+if (-not $isAdmin) {
+    Write-Host "Running as standard user - attempting to test log access..."
+    
+    # Test ability to clear event log (should fail)
+    try {
+        # This should fail for non-admins
+        Clear-EventLog -LogName "Application" -ErrorAction Stop
+        Write-Host "WARNING - User CAN clear Application log!" -ForegroundColor Red
+    } catch {
+        Write-Host "User CANNOT clear Application log (Good)" -ForegroundColor Green
+    }
+    
+    # Test ability to modify log settings
+    try {
+        $testLog = Get-WinEvent -ListLog "Application" -ErrorAction Stop
+        $testLog.MaximumSizeInBytes = 1MB
+        $testLog.SaveChanges()
+        Write-Host "WARNING - User CAN modify log settings!" -ForegroundColor Red
+    } catch {
+        Write-Host "User CANNOT modify log settings (Good)" -ForegroundColor Green
+    }
+} else {
+    Write-Host "Running as administrator - skipping modification tests"
+    Write-Host "Run this script as a standard user to test protection against unauthorized access"
+}
+
+Write-Host ""
+Write-Host "Additional Security Recommendations" -ForegroundColor Yellow
+Write-Host "===================================" -ForegroundColor Gray
+
+# Check for event log forwarding
+$wecutil = Get-Command wecutil -ErrorAction SilentlyContinue
+if ($wecutil) {
+    try {
+        $subscriptions = & wecutil es 2>$null
+        if ($subscriptions) {
+            Write-Host "Event log forwarding is CONFIGURED" -ForegroundColor Green
+            Write-Host "  Active subscriptions $($subscriptions.Count)" -ForegroundColor Green
+        } else {
+            Write-Host "Event log forwarding is NOT configured" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "Unable to check event log forwarding" -ForegroundColor Gray
+    }
+} else {
+    Write-Host "Windows Event Collector service not available" -ForegroundColor Gray
+}
+
+# Check for SIEM agent
+$siemAgents = @(
+    @{Name="Splunk Universal Forwarder"; Service="SplunkForwarder"},
+    @{Name="Windows Defender ATP"; Service="Sense"},
+    @{Name="Sysmon"; Service="Sysmon*"}
+)
+
+Write-Host ""
+Write-Host "Checking for SIEM/Monitoring Agents" -ForegroundColor Gray
+foreach ($agent in $siemAgents) {
+    $service = Get-Service -Name $agent.Service -ErrorAction SilentlyContinue
+    if ($service) {
+        Write-Host "$($agent.Name) is INSTALLED and $($service.Status)" -ForegroundColor Green
+    }
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Event Log Protection Summary" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Summary
+$issues = @()
+if ($dangerousPermissions.Count -gt 0) { $issues += "Vulnerable file/registry permissions found" }
+if (-not $eventLogService -or $eventLogService.Status -ne "Running") { $issues += "Event Log service issues" }
+
+if ($issues.Count -eq 0) {
+    Write-Host "Event logs appear to be properly protected" -ForegroundColor Green
+} else {
+    Write-Host "Security issues found" -ForegroundColor Red
+    foreach ($issue in $issues) {
+        Write-Host "  - $issue" -ForegroundColor Red
+    }
+}
+
+Write-Host ""
+Write-Host "Note To fully test protection, run this script as both" -ForegroundColor White
+Write-Host "an administrator and a standard user account." -ForegroundColor White
+Write-Host "Standard users should not be able to modify or delete logs." -ForegroundColor White
 # ML2-AH-14 to ML2-AH-18 are process checks
 Write-Host "ML2-AH-14 to ML2-AH-18 - Incident Response Process Checks" -ForegroundColor Yellow
 Write-Host "These controls require manual verification of"
