@@ -610,9 +610,21 @@ if (-not (Test-Path -Path $eicarTestDir)) {
     New-Item -Path $eicarTestDir -ItemType Directory -Force | Out-Null
 }
 
+# Create EICAR test macro file for manual testing
+Write-Host "`n=========================================================" -ForegroundColor Green
+Write-Host "                  EICAR TEST MACRO                      " -ForegroundColor Green
+Write-Host "=========================================================" -ForegroundColor Green
+
+$eicarTestDir = Join-Path -Path $env:USERPROFILE -ChildPath "OfficeMacroSecurityChecks\TestFiles"
+if (-not (Test-Path -Path $eicarTestDir)) {
+    New-Item -Path $eicarTestDir -ItemType Directory -Force | Out-Null
+}
+
 $eicarMacroFile = Join-Path -Path $eicarTestDir -ChildPath "EicarTestMacro.txt"
-$eicarString = "X5O!P%@AP[4\PZX54(P^)7CC)7}`$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!`$H+H*"
-$eicarMacroContent = @"
+# Using backtick to escape the $ in the EICAR string
+$eicarString = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+
+$eicarMacroContent = @'
 '
 ' EICAR Test Macro
 ' This is a sample macro that would write the EICAR test string to a file
@@ -629,23 +641,22 @@ Sub EicarTest()
     Set outFile = fso.CreateTextFile("C:\Temp\eicar_test.txt", True)
     
     ' Write EICAR test string
-    outFile.WriteLine "$eicarString"
+    outFile.WriteLine "X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
     
     ' Close file
     outFile.Close
     
     MsgBox "EICAR test file created. Your antivirus should detect this.", vbInformation
 End Sub
-"@
+'@
 
 Write-Host $eicarMacroContent -ForegroundColor Yellow
 Write-Host "`nEICAR test macro can be used to verify antivirus scanning of Office macros" -ForegroundColor Cyan
 Write-Host "To use Copy this macro code into a macro-enabled Office document (.docm, .xlsm, etc.)" -ForegroundColor Cyan
 Write-Host "File also saved to $eicarMacroFile" -ForegroundColor Cyan
+
 try {
     Set-Content -Path $eicarMacroFile -Value $eicarMacroContent -Force
-    Write-Host "`nCreated EICAR test macro file at $eicarMacroFile" -ForegroundColor Cyan
-    Write-Host "NOTE This is a text file with VBA code. For testing, you would need to create a macro-enabled Office document (.docm, .xlsm, etc.) and import this code." -ForegroundColor Yellow
 } catch {
     Write-Host "Error creating EICAR test macro file $_" -ForegroundColor Red
 }
